@@ -1,0 +1,74 @@
+name: Deploy Lawhaty Api To EKS
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env: 
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+        
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v2.0
+      with:
+        version: 'v1.24.0' # default is latest stable
+      id: install_kubectl  
+
+    - name: Setup EKS Kubectl
+      uses: zachguo/setup-eks-kubectl@v1
+      with:
+       cluster: lawhaty-lawhaty-demo
+       region: us-east-1
+       namespace: default
+             
+    - name: Login to ECR
+      id: login_to_ecr
+      uses: jwalton/gh-ecr-login@v2.0.4
+      with:
+       access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+       secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+       region: us-east-1
+       
+    - name: Push to ECR
+      id: build_image_and_push_to_ECR
+      run: |
+        docker build -t lawhaty:${{ github.run_number }} .
+        docker tag lawhaty:${{ github.run_number }} 339713055603.dkr.ecr.us-east-1.amazonaws.com/lawhaty:${{ github.run_number }}
+        docker push 339713055603.dkr.ecr.us-east-1.amazonaws.com/lawhaty:${{ github.run_number }}
+        
+    - name: Update kube config
+      id: Login_to_EKS_Cluster
+      run: aws eks update-kubeconfig --name lawhaty-lawhaty-demo
+      
+    - name: Update deployment file
+      id: update_Deployment_file_with_latest_tag_of_the_image 
+      env:
+        ECR_REPO_URL: 339713055603.dkr.ecr.us-east-1.amazonaws.com/lawhaty
+        RUNNER_NUMBER: ${{ github.run_number }}
+      run: |
+        sed -i "s|image:.*|image: $ECR_REPO_URL:$RUNNER_NUMBER|g"  deployment.yaml
+        cat deployment.yaml 
+    
+    - name: Deploy to EKS
+      id: deploy_an_image_on_EKS_Cluster
+      run: |
+        kubectl apply -f deployment.yaml
+      
+          
+    - uses: act10ns/slack@v1
+      with:
+          status: ${{ job.status }}
+          steps: ${{ toJson(steps) }}
+          channel: '#projects-devops'
+      if: always()
