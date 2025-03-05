@@ -16,13 +16,14 @@ import { ServeStaticModule } from '@nestjs/serve-static';
     ConfigModule.forRoot({
       envFilePath: ['.env'],
       isGlobal: true,
-      cache: true,
+      cache: true, 
       expandVariables: true,
       validationSchema: Joi.object({
         NODE_ENV: Joi.string()
           .valid('development', 'production', 'test', 'provision')
           .default('development'),
       }),
+      
     }),
     SharedModule,
   ],
